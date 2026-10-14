@@ -1,6 +1,6 @@
-# One-Click Hyper-V GPU-P Setup for Virtual Machines
-
 [繁體中文](README.md) | [English](README_EN.md)
+# One-Click Hyper-V GPU-P Setup for Virtual Machines
+> **Compatible with both AMD and NVIDIA graphics cards.**
 
 ## Terminology
 

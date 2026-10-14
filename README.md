@@ -1,6 +1,6 @@
-# Hyper-V GPU 顯示卡直通虛擬機一鍵腳本設定
-
 [繁體中文](README.md) | [English](README_EN.md)
+# Hyper-V GPU 顯示卡直通虛擬機一鍵腳本設定
+> **AMD 與 NVIDIA 顯示卡皆適用。**
 
 ## 名詞解釋
 
