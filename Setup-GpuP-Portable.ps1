@@ -101,6 +101,68 @@ function Choose {
     }
 }
 
+function Invoke-PortableDiskMount {
+    param([object]$VM)
+
+    $mountedHere = $false
+    $imagePath = $null
+    try {
+        if ((Get-VM -Id $VM.Id).State -ne 'Off') {
+            throw 'VM must be Off, not Running or Saved. Shut it down and try again.'
+        }
+
+        # Use the disk currently configured on the VM, including its active
+        # differencing disk, rather than guessing the base VHDX filename.
+        $disks = @(Get-VMHardDiskDrive -VM $VM | Where-Object Path)
+        $disk = Choose $disks 'Select disk to mount (read/write)' {
+            param($x)
+            '{0} | {1} {2}:{3}' -f $x.Path, $x.ControllerType,
+                $x.ControllerNumber, $x.ControllerLocation
+        }
+        $imagePath = $disk.Path
+        if (!(Test-Path -LiteralPath $imagePath -PathType Leaf)) {
+            throw "Disk file is not accessible: $imagePath"
+        }
+        if ((Get-DiskImage -ImagePath $imagePath).Attached) {
+            throw 'Disk is already mounted. Dismount the existing mount first; a read-only mount cannot be upgraded in place.'
+        }
+        if ((Get-VM -Id $VM.Id).State -ne 'Off') {
+            throw 'VM state changed; aborting.'
+        }
+
+        $null = Mount-DiskImage -ImagePath $imagePath -Access ReadWrite -PassThru
+        $mountedHere = $true
+        Write-Host "`nMounted READ/WRITE: $imagePath" -ForegroundColor Green
+        Write-Host 'Keep the VM Off and this PowerShell window open while copying files.'
+        Write-Host 'Changes are written directly to this disk. No VM backup is created in this mode.'
+
+        $volumes = @(Get-DiskImage -ImagePath $imagePath |
+            Get-Disk | Get-Partition | Get-Volume)
+        $volumes | Select-Object DriveLetter, FileSystemLabel, FileSystem, Size |
+            Format-Table -AutoSize | Out-Host
+        if (!@($volumes | Where-Object DriveLetter).Count) {
+            Write-Warning 'No drive letter is available. Check Disk Management; do not initialize or format the disk.'
+        }
+
+        $null = Read-Host 'Copy your files, close files opened on this disk, then press Enter to dismount'
+    }
+    finally {
+        # Only release a mount created by this invocation.
+        if ($mountedHere) {
+            try {
+                Dismount-DiskImage -ImagePath $imagePath -ErrorAction Stop
+                Write-Host 'Disk dismounted. You can now start the VM.' -ForegroundColor Green
+            }
+            catch {
+                Write-Warning "Disk could not be dismounted: $imagePath"
+                Write-Warning 'Keep the VM Off. Close open files and run the following command:'
+                Write-Host ("Dismount-DiskImage -ImagePath '{0}'" -f $imagePath.Replace("'", "''"))
+                throw
+            }
+        }
+    }
+}
+
 $windowsPrefix = $env:windir.TrimEnd('\') + '\'
 $repository = Join-Path $windowsPrefix 'System32\DriverStore\FileRepository\'
 $sources = @{}
@@ -203,9 +265,20 @@ $backupSkipped = $SkipBackup.IsPresent
 $vm = $null
 
 try {
+    $action = Choose @('GPU', 'Mount') 'Select operation' {
+        param($x)
+        if ($x -eq 'GPU') { 'Configure GPU-P and copy GPU drivers (original workflow)' }
+        else { 'Mount a Hyper-V VM disk READ/WRITE to copy files, then dismount' }
+    }
+
     $vm = Choose @(Get-VM | Sort-Object Name) 'Select VM' {
         param($x)
         '{0} | {1} | Generation {2}' -f $x.Name, $x.State, $x.Generation
+    }
+
+    if ($action -eq 'Mount') {
+        Invoke-PortableDiskMount -VM $vm
+        return
     }
 
     $signed = @(Get-CimInstance Win32_PnPSignedDriver)

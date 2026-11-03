@@ -1,5 +1,5 @@
 [繁體中文](README.md) | [English](README_EN.md)
-# Hyper-V GPU 顯示卡直通虛擬機一鍵腳本設定
+# Hyper-V GPU-P 設定與虛擬磁碟掛載工具
 > **AMD 與 NVIDIA 顯示卡皆適用。**
 
 ## 名詞解釋
@@ -13,9 +13,10 @@
 
 本文使用 `Host Windows` 與 `Guest Windows` 區分 VM 外部及內部的 Windows；需要描述硬體本身時則使用「實體電腦」或「實體 GPU」。
 
-`Setup-GpuP-Portable.ps1` 用來在 Host Windows 上替 VM 設定 GPU Partitioning（GPU-P）。GPU-P 可讓 Host Windows 與一台或多台 VM 共享同一張實體 GPU，而不需要將整張 GPU 專屬直通給單一 VM。
+`Setup-GpuP-Portable.ps1` 提供兩種操作：替 VM 設定 GPU Partitioning（GPU-P），或將 VM 目前使用的虛擬磁碟以讀寫模式掛載到 Host Windows，方便手動複製檔案。GPU-P 可讓 Host Windows 與一台或多台 VM 共享同一張實體 GPU，而不需要將整張 GPU 專屬直通給單一 VM。
 
-腳本會讓你選擇 VM、Host Windows 管理的實體 GPU，以及 Guest Windows 所在的虛擬磁碟。接著，腳本會把 Host Windows 目前使用中的 GPU 驅動檔案複製到離線 Guest Windows 的指定目的地，設定 VM 的記憶體映射 I/O 與快取選項，最後新增所選 GPU 的分割區介面卡。
+- **GPU 設定**：選擇 VM、Host Windows 管理的實體 GPU，以及 Guest Windows 所在的虛擬磁碟。腳本會把 Host Windows 目前使用中的 GPU 驅動檔案複製到離線 Guest Windows 的指定目的地，設定 VM 的記憶體映射 I/O 與快取選項，最後新增所選 GPU 的分割區介面卡。
+- **掛載磁碟**：選擇 VM 及其目前連接的虛擬磁碟，以讀寫模式掛載後自行複製檔案。完成並關閉磁碟上的檔案後按 Enter，腳本便會卸載磁碟。此模式也會選到 VM 目前作用中的差異磁碟，而不是猜測基礎 VHD/VHDX 的檔名。
 
 ## 適用情境
 
@@ -23,6 +24,7 @@
 - **Host Windows 與 VM 同時使用 GPU**：Host Windows 保留桌面與日常工作環境，同時讓 VM 使用 GPU 加速，不必為 VM 準備另一張獨立顯示卡。
 - **多套軟體環境測試**：在不同 VM 中測試驅動程式、遊戲、圖形應用程式或 Windows 設定，降低測試內容影響 Host Windows 的風險。
 - **圖形與運算工作負載**：讓 VM 使用支援的 3D、影片處理、渲染或 GPU 運算功能；實際可用功能取決於 GPU、驅動程式與應用程式相容性。
+- **離線複製檔案**：在不啟動 VM 的情況下，將檔案直接複製到 VM 的虛擬磁碟，完成後由腳本卸載磁碟。
 
 GPU-P 是共享資源，不代表每台 VM 都能獲得完整實體 GPU 的效能。可同時執行的 VM 或遊戲數量會受 GPU 效能與顯示記憶體、CPU、系統記憶體及工作負載影響。此外，部分遊戲的防作弊系統、授權條款或虛擬化偵測可能禁止或無法在 VM 中運作；使用前應確認遊戲規則與相容性。
 
@@ -34,13 +36,15 @@ GPU-P 是共享資源，不代表每台 VM 都能獲得完整實體 GPU 的效�
 
 - 在已啟用 Hyper-V 的 Host Windows 上執行。
 - 使用 Windows PowerShell 5.1，並以系統管理員身分執行。
-- 實體 GPU 必須支援 Hyper-V GPU Partitioning，且 Host Windows 已安裝可正常使用的 GPU 驅動程式。
-- Guest Windows 必須是 x64 版本的 Windows 10 或 Windows 11。
-- 執行前必須將 VM 完整關機（**一定要完整關機，而不是儲存**）。
-- Guest Windows 的虛擬磁碟不可已被其他程式掛載，且 Windows 磁碟區必須可直接讀取。若磁碟受 BitLocker 鎖定，腳本將無法寫入驅動檔案。
-- 如果要建立完整 VM 備份，備份位置必須有足夠空間容納 Hyper-V 匯出的設定與虛擬磁碟。
+- GPU 設定模式需要支援 Hyper-V GPU Partitioning 的實體 GPU，且 Host Windows 必須已安裝可正常使用的 GPU 驅動程式。
+- GPU 設定模式的 Guest Windows 必須是 x64 版本的 Windows 10 或 Windows 11。
+- 執行前必須將 VM 完整關機（**一定要完整關機，而不是執行中或儲存狀態**）。掛載磁碟模式不會等待關機；選取的 VM 若不是 `Off` 會立即停止。
+- 所選虛擬磁碟不可已被其他程式掛載，且要使用的磁碟區必須可存取。若 Guest Windows 磁碟受 BitLocker 鎖定，GPU 設定模式將無法寫入驅動檔案；掛載磁碟模式也必須先解鎖才能複製檔案。
+- 如果在 GPU 設定模式建立完整 VM 備份，備份位置必須有足夠空間容納 Hyper-V 匯出的設定與虛擬磁碟。
 
 ## 腳本會進行的變更
+
+### GPU 設定模式
 
 1. 從 Host Windows 收集所選 GPU 的驅動套件與相關檔案。
 2. 依照選擇建立新 VM 備份、沿用既有備份，或略過備份。
@@ -50,11 +54,26 @@ GPU-P 是共享資源，不代表每台 VM 都能獲得完整實體 GPU 的效�
 
 腳本會在複製驅動前先建立檔案清單與記錄目錄。若選擇略過備份，所有變更會直接寫入虛擬磁碟，發生問題時不會有由此腳本建立的 Hyper-V 匯出備份可供復原。
 
+### 掛載磁碟模式
+
+1. 確認所選 VM 處於 `Off` 狀態，並讓你選擇該 VM 目前連接的虛擬磁碟。
+2. 確認磁碟檔案可存取且尚未掛載，再以讀寫模式掛載。
+3. 顯示可用磁碟區的磁碟機代號、標籤、檔案系統與容量，等待你手動複製檔案。
+4. 你關閉磁碟上的檔案並按 Enter 後，卸載由本次操作掛載的磁碟。
+
+此模式不會建立 VM 備份，所有變更都會直接寫入所選磁碟。掛載期間必須讓 VM 保持關機並保持 PowerShell 視窗開啟。若沒有可用的磁碟機代號，請到「磁碟管理」檢查，但**不要初始化或格式化磁碟**。
+
+> **注意：**如果 VHDX 位於 `C:\ProgramData\Microsoft\Windows\Virtual Hard Disks\`，掛載後透過檔案總管開啟磁碟機可能會顯示「拒絕存取」。此時請在以系統管理員身分執行的 PowerShell 中使用 `Copy-Item` 手動複製，並將目的地磁碟機代號改成實際掛載後顯示的代號：
+>
+> ```powershell
+> Copy-Item -LiteralPath 'C:\你的資料夾' -Destination 'D:\' -Recurse
+> ```
+
 ## 快速開始
 
 1. 將此腳本放在 Host Windows 的任意資料夾。
 2. 將目標 VM 從 Guest Windows 內完整關機 **（一定要完整關機，而不是儲存）**。
-3. 請確認目標 VM 的檢查點為「停用」。
+3. 若要執行 GPU 設定，請確認目標 VM 的檢查點為「停用」。掛載磁碟模式會使用 VM 目前連接的磁碟，包括作用中的差異磁碟。
 4. 以系統管理員身分開啟 Windows PowerShell 5.1。
 5. 切換至包含腳本的資料夾，例如：
 
@@ -68,14 +87,18 @@ GPU-P 是共享資源，不代表每台 VM 都能獲得完整實體 GPU 的效�
    powershell.exe -NoProfile -ExecutionPolicy Bypass -File "Setup-GpuP-Portable.ps1"
    ```
 
-7. 依提示選擇 VM、GPU、包含 Guest Windows 的虛擬磁碟，以及備份方式。
-8. 看到 `SUCCESS` 後，自行啟動 VM，並在裝置管理員中檢查 GPU 狀態。
+7. 先選擇操作，再依提示進行：
 
-執行期間請勿啟動 VM、中途會掛載 VM 的虛擬磁碟在 Host Windows 中，如有出現新的磁碟機視窗出現，請不予理會待工作完成後就會自動卸除，也請不要切斷實體電腦電源。
+   - **Configure GPU-P and copy GPU drivers**：選擇 VM、GPU、包含 Guest Windows 的虛擬磁碟，以及備份方式。看到 `SUCCESS` 後，自行啟動 VM，並在裝置管理員中檢查 GPU 狀態。
+   - **Mount a Hyper-V VM disk READ/WRITE**：選擇 VM 與磁碟，掛載後手動複製檔案。關閉磁碟上的檔案，再回到 PowerShell 按 Enter 卸載；看到可以啟動 VM 的訊息後再開機。
 
-如果腳本失敗，請先確認終端機顯示的虛擬磁碟已成功卸除，再嘗試啟動 VM。
+執行期間請勿啟動 VM 或切斷實體電腦電源。VM 的虛擬磁碟會掛載到 Host Windows；GPU 設定模式若出現新的磁碟機視窗，請不予理會。掛載磁碟模式則可使用該磁碟機複製檔案，完成後由腳本卸載。
+
+如果腳本失敗，請先確認終端機顯示的虛擬磁碟已成功卸載，再嘗試啟動 VM。若掛載磁碟模式無法卸載，請讓 VM 保持關機、關閉磁碟上所有開啟的檔案，並執行終端機顯示的 `Dismount-DiskImage` 命令。
 
 ## 可用參數
+
+下列參數供 GPU 設定流程使用；掛載磁碟模式不會建立記錄或備份。
 
 | 參數 | 類型 | 預設值 | 說明 |
 | --- | --- | --- | --- |
@@ -88,7 +111,7 @@ GPU-P 是共享資源，不代表每台 VM 都能獲得完整實體 GPU 的效�
 
 ## 備份選項
 
-只有在 `-ReuseBackupPath` 與 `-SkipBackup` 都未指定時，腳本才會顯示下列互動式備份選單。指定其中一個參數後不會出現備份選單，但選擇 VM、GPU 與虛擬磁碟等其他互動式選單仍會照常出現。
+此節只適用於 GPU 設定模式。只有在 `-ReuseBackupPath` 與 `-SkipBackup` 都未指定時，腳本才會顯示下列互動式備份選單。指定其中一個參數後不會出現備份選單，但選擇 VM、GPU 與虛擬磁碟等其他互動式選單仍會照常出現。掛載磁碟模式永遠不會顯示備份選單或建立備份。
 
 - 輸入 `0`：建立新的完整 VM 備份。
 - 輸入既有備份的編號：沿用該份備份。
